@@ -12,6 +12,9 @@ defmodule KafkaEx.Protocol do
   @heartbeat_request         12
   @leave_group_request       13
   @sync_group_request        14
+  @create_topics_request     19
+  # DescribeConfigs	32
+  # AlterConfigs	33 Valid resource types are "Topic" and "Broker".
 
   @api_version  0
 
@@ -57,6 +60,10 @@ defmodule KafkaEx.Protocol do
 
   defp api_key(:sync_group) do
     @sync_group_request
+  end
+
+  defp api_key(:create_topics) do
+    @create_topics_request
   end
 
   def create_request(type, correlation_id, client_id) do

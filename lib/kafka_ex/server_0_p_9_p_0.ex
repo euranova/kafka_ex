@@ -1,7 +1,14 @@
 defmodule KafkaEx.Server0P9P0 do
   @moduledoc """
-  Implements kafkaEx.Server behaviors for kafka 0.9.0 API.
+    Implements kafkaEx.Server behaviors for kafka >= 0.9.0 < 0.10.1 API.
+
   """
+
+  # these functions aren't implemented for 0.9.0
+  @dialyzer [
+    {:nowarn_function, kafka_create_topics: 2},
+  ]
+
   use KafkaEx.Server
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
@@ -38,6 +45,7 @@ defmodule KafkaEx.Server0P9P0 do
   defdelegate kafka_server_offset_commit(offset_commit_request, state), to: Server0P8P2
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
+  def kafka_create_topics(_, _state), do: raise "CreateTopic is not supported in 0.9.0 version of kafka"
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])
@@ -207,7 +215,7 @@ defmodule KafkaEx.Server0P9P0 do
   # refactored from two versions, one that used the first broker as valid answer, hence
   # the optional extra flag to do that. Wraps broker_for_consumer_group with an update
   # call if no broker was found.
-  defp broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
+  def broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
     case broker_for_consumer_group(state) do
       nil ->
         {_, updated_state} = update_consumer_metadata(state)
@@ -223,6 +231,7 @@ defmodule KafkaEx.Server0P9P0 do
   # valid binary consumer group name
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
+
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())
