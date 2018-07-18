@@ -5,9 +5,9 @@ defmodule KafkaEx.Server0P10P1.Test do
 
   @tag :createtopic
   test "can create a topic" do
-    KafkaEx.create_topics("ploup")
+    KafkaEx.create_topics("ploup2")
     topics = KafkaEx.metadata.topic_metadatas |> Enum.map(&(&1.topic))
     IO.inspect(topics)
-    assert Enum.member?(topics, "ploup")
+    assert Enum.member?(topics, "ploup2")
   end
 end

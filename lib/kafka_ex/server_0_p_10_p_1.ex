@@ -7,7 +7,23 @@ defmodule KafkaEx.Server0P10P1 do
   alias KafkaEx.Server0P8P2
   alias KafkaEx.Server0P9P0
 
+  # alias KafkaEx.ConsumerGroupRequiredError
+  alias KafkaEx.InvalidConsumerGroupError
+  alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
+  # alias KafkaEx.Protocol.Heartbeat
+  # alias KafkaEx.Protocol.JoinGroup
+  # alias KafkaEx.Protocol.LeaveGroup
+  alias KafkaEx.Protocol.Metadata.Broker
+  # alias KafkaEx.Protocol.SyncGroup
+  alias KafkaEx.Server.State
+  # alias KafkaEx.NetworkClient
+
   require Logger
+
+  @metadata_api_version 1
+  @consumer_group_update_interval 30_000
+
 
   def start_link(args, name \\ __MODULE__)
 
@@ -28,34 +44,72 @@ defmodule KafkaEx.Server0P10P1 do
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
 
   # The functions below are all defined in KafkaEx.Server0P9P0
-  defdelegate kafka_server_init(args), to: Server0P9P0
   defdelegate kafka_server_join_group(request, network_timeout, state_in), to: Server0P9P0
   defdelegate kafka_server_sync_group(request, network_timeout, state_in), to: Server0P9P0
   defdelegate kafka_server_leave_group(request, network_timeout, state_in), to: Server0P9P0
   defdelegate kafka_server_heartbeat(request, network_timeout, state_in), to: Server0P9P0
   defdelegate consumer_group?(state), to: Server0P9P0
 
-  # CreateTopics Request (Version: 0) => [create_topic_requests] timeout
-  # create_topic_requests => topic num_partitions replication_factor [replica_assignment] [config_entries]
-  #   topic => STRING
-  #   num_partitions => INT32
-  #   replication_factor => INT16
-  #   replica_assignment => partition [replicas]
-  #     partition => INT32
-  #     replicas => INT32
-  #   config_entries => config_name config_value
-  #     config_name => STRING
-  #     config_value => NULLABLE_STRING
-  # timeout => INT32
+  def kafka_server_init([args]) do
+    kafka_server_init([args, self()])
+  end
+
+  def kafka_server_init([args, name]) do
+    uris = Keyword.get(args, :uris, [])
+    metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
+    consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
+
+    # this should have already been validated, but it's possible someone could
+    # try to short-circuit the start call
+    consumer_group = Keyword.get(args, :consumer_group)
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
+
+    use_ssl = Keyword.get(args, :use_ssl, false)
+    ssl_options = Keyword.get(args, :ssl_options, [])
+
+    brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
+
+    {correlation_id, metadata} = retrieve_metadata_with_version(brokers, 0, config_sync_timeout(), @metadata_api_version)
+    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, ssl_options: ssl_options, use_ssl: use_ssl}
+    # Get the initial "real" broker list and start a regular refresh cycle.
+    state = update_metadata(state, @metadata_api_version)
+    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
+
+    state =
+      if consumer_group?(state) do
+        # If we are using consumer groups then initialize the state and start the update cycle
+        {_, updated_state} = update_consumer_metadata(state)
+        {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
+        updated_state
+      else
+        state
+      end
+
+    {:ok, state}
+  end
+
+  def kafka_server_metadata(topic, state) do
+    {correlation_id, metadata} = retrieve_metadata_with_version(state.brokers, state.correlation_id, config_sync_timeout(), @metadata_api_version, topic)
+    updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
+    {:reply, metadata, updated_state}
+  end
+
+  def kafka_server_update_metadata(state) do
+    {:noreply, update_metadata(state, @metadata_api_version)}
+  end
 
   def kafka_create_topics(topic_name, state) do
     create_topics_request = %{
       create_topic_requests: [%{
         topic: topic_name,
-        num_partitions: 3,
-        replication_factor: 2,
+        num_partitions: 10,
+        replication_factor: 1,
         replica_assignment: [],
-        config_entries: []
+        config_entries: [
+          # %CreateTopics.ConfigEntry{config_name: "cleanup.policy", config_value: "compact"}
+        ]
       }],
       timeout: 2000
 
@@ -66,7 +120,7 @@ defmodule KafkaEx.Server0P10P1 do
     #   raise ConsumerGroupRequiredError, offset_fetch
     # end
 
-    {broker, state} = KafkaEx.Server0P9P0.broker_for_consumer_group_with_update(state)
+    # {broker, state} = KafkaEx.Server0P9P0.broker_for_consumer_group_with_update(state)
 
     # # if the request is for a specific consumer group, use that
     # # otherwise use the worker's consumer group
@@ -74,23 +128,87 @@ defmodule KafkaEx.Server0P10P1 do
     # offset_fetch = %{offset_fetch | consumer_group: consumer_group}
 
     # offset_fetch_request = OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
+    IO.inspect("Go all brokers !")
 
-    {response, state} = case broker do
-      nil    ->
-        Logger.log(:error, "Coordinator for topic is not available")
-        {:topic_not_found, state}
-      _ ->
-        response = broker
-          |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
-          |> case do
-               {:error, reason} -> {:error, reason}
-               response -> response
-             end
-        {response, %{state | correlation_id: state.correlation_id + 1}}
-    end
-    IO.inspect("Response: ")
-    IO.inspect(response)
+    all = state.brokers |> Enum.map(fn (broker) ->
+      IO.inspect("Broker: ")
+      IO.inspect(broker)
+      {response, state} = case broker do
+        nil    ->
+          Logger.log(:error, "Coordinator for topic is not available")
+          {:topic_not_found, state}
+        _ ->
+          response = broker
+            |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
+            |> case do
+                 {:error, reason} -> {:error, reason}
+                 response -> CreateTopics.parse_response(response)
+               end
+          {response, %{state | correlation_id: state.correlation_id + 1}}
+      end
+
+      IO.inspect("*********************Response: ")
+      IO.inspect(response)
+      {response, state}
+    end)
+
+    {response, state} = hd(all)
+
     {:reply, response, state}
+  end
+
+  defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
+
+  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
+    Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
+    {%ConsumerMetadataResponse{error_code: error_code}, state}
+  end
+
+  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
+    response = correlation_id
+      |> ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> first_broker_response(state)
+      |> ConsumerMetadata.parse_response
+
+    case response.error_code do
+      :no_error ->
+        {
+          response,
+          %{
+            state |
+            consumer_metadata: response,
+            correlation_id: state.correlation_id + 1
+          }
+        }
+      _ -> :timer.sleep(400)
+        update_consumer_metadata(
+          %{state | correlation_id: state.correlation_id + 1},
+          retry - 1,
+          response.error_code
+        )
+    end
+  end
+
+  defp broker_for_consumer_group(state) do
+    ConsumerMetadataResponse.broker_for_consumer_group(state.brokers, state.consumer_metadata)
+  end
+
+  # refactored from two versions, one that used the first broker as valid answer, hence
+  # the optional extra flag to do that. Wraps broker_for_consumer_group with an update
+  # call if no broker was found.
+  def broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
+    case broker_for_consumer_group(state) do
+      nil ->
+        {_, updated_state} = update_consumer_metadata(state)
+        default_broker = if use_first_as_default, do: hd(state.brokers), else: nil
+        {broker_for_consumer_group(updated_state) || default_broker, updated_state}
+      broker ->
+        {broker, state}
+    end
+  end
+
+  defp first_broker_response(request, state) do
+    first_broker_response(request, state.brokers, config_sync_timeout())
   end
 
 end

@@ -371,8 +371,10 @@ defmodule KafkaEx.Server do
         {:noreply, update_metadata(state)}
       end
 
-      def update_metadata(state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout())
+      def update_metadata(state), do: update_metadata(state, nil)
+
+      def update_metadata(state, api_version) do
+        {correlation_id, metadata} = retrieve_metadata_with_version(state.brokers, state.correlation_id, config_sync_timeout(), api_version)
         metadata_brokers = metadata.brokers
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
@@ -382,14 +384,24 @@ defmodule KafkaEx.Server do
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
+      def retrieve_metadata_with_version(brokers, correlation_id, sync_timeout, api_version, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, api_version, 0)
+
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
+
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
-        metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code) do
+        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, nil, error_code)
+      end
+
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, api_version, _error_code) do
+        metadata_request = Metadata.create_request(correlation_id, @client_id, topic, api_version)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
         response = case data do
                      nil ->
@@ -397,10 +409,10 @@ defmodule KafkaEx.Server do
                        raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
                        :no_metadata_available
                      data ->
-                       Metadata.parse_response(data)
+                       Metadata.parse_response(data, api_version)
                    end
 
-                   case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
+        case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
           nil  -> {correlation_id + 1, response}
           topic_metadata ->
             :timer.sleep(300)
