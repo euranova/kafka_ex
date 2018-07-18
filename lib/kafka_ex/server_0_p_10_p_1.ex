@@ -100,59 +100,29 @@ defmodule KafkaEx.Server0P10P1 do
     {:noreply, update_metadata(state, @metadata_api_version)}
   end
 
-  def kafka_create_topics(topic_name, state) do
-    create_topics_request = %{
-      create_topic_requests: [%{
-        topic: topic_name,
-        num_partitions: 10,
-        replication_factor: 1,
-        replica_assignment: [],
-        config_entries: [
-          # %CreateTopics.ConfigEntry{config_name: "cleanup.policy", config_value: "compact"}
-        ]
-      }],
+  def kafka_create_topics(requests, state) do
+    create_topics_request = %CreateTopics.Request{
+      create_topic_requests: requests,
       timeout: 2000
-
     }
+
     mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request)
 
-    # unless consumer_group?(state) do
-    #   raise ConsumerGroupRequiredError, offset_fetch
-    # end
+    broker = state.brokers |> Enum.find(&(&1.is_controller))
 
-    # {broker, state} = KafkaEx.Server0P9P0.broker_for_consumer_group_with_update(state)
-
-    # # if the request is for a specific consumer group, use that
-    # # otherwise use the worker's consumer group
-    # consumer_group = offset_fetch.consumer_group || state.consumer_group
-    # offset_fetch = %{offset_fetch | consumer_group: consumer_group}
-
-    # offset_fetch_request = OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
-    IO.inspect("Go all brokers !")
-
-    all = state.brokers |> Enum.map(fn (broker) ->
-      IO.inspect("Broker: ")
-      IO.inspect(broker)
-      {response, state} = case broker do
-        nil    ->
-          Logger.log(:error, "Coordinator for topic is not available")
-          {:topic_not_found, state}
-        _ ->
-          response = broker
-            |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
-            |> case do
-                 {:error, reason} -> {:error, reason}
-                 response -> CreateTopics.parse_response(response)
-               end
-          {response, %{state | correlation_id: state.correlation_id + 1}}
-      end
-
-      IO.inspect("*********************Response: ")
-      IO.inspect(response)
-      {response, state}
-    end)
-
-    {response, state} = hd(all)
+    {response, state} = case broker do
+      nil    ->
+        Logger.log(:error, "Coordinator for topic is not available")
+        {:topic_not_found, state}
+      _ ->
+        response = broker
+          |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
+          |> case do
+                {:error, reason} -> {:error, reason}
+                response -> CreateTopics.parse_response(response)
+              end
+        {response, %{state | correlation_id: state.correlation_id + 1}}
+    end
 
     {:reply, response, state}
   end

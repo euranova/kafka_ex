@@ -375,7 +375,7 @@ defmodule KafkaEx.Server do
 
       def update_metadata(state, api_version) do
         {correlation_id, metadata} = retrieve_metadata_with_version(state.brokers, state.correlation_id, config_sync_timeout(), api_version)
-        metadata_brokers = metadata.brokers
+        metadata_brokers = metadata.brokers |> Enum.map(&(%{&1 | is_controller: &1.node_id == metadata.controller_id}))
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
           |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl)

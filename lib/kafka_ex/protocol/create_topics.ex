@@ -71,17 +71,15 @@ defmodule KafkaEx.Protocol.CreateTopics do
   @spec encode_topic_requests([TopicRequest.t]) :: binary
   defp encode_topic_requests(requests) do
     requests
-    |> IO.inspect
     |> map_encode(&encode_topic_request/1)
-    |> IO.inspect
   end
 
   @spec encode_topic_request(TopicRequest.t) :: binary
   defp encode_topic_request(request) do
-    (encode_string(request.topic) |> IO.inspect )<>
-      (<< request.num_partitions :: 32-signed, request.replication_factor :: 16-signed >> |> IO.inspect )<>
-      (encode_replica_assignments(request.replica_assignment) |> IO.inspect)<>
-      (encode_config_entries(request.config_entries) |> IO.inspect)
+    encode_string(request.topic) <>
+      << request.num_partitions :: 32-signed, request.replication_factor :: 16-signed >> <>
+      encode_replica_assignments(request.replica_assignment) <>
+      encode_config_entries(request.config_entries)
   end
 
 
@@ -103,17 +101,20 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   @spec encode_config_entry(ConfigEntry.t) :: binary
   defp encode_config_entry(config_entry) do
-    encode_string(config_entry.config_value) <> encode_nullable_string(config_entry.config_value)
+    encode_string(config_entry.config_name) <> encode_nullable_string(config_entry.config_value)
   end
 
   @spec encode_nullable_string(String.t) :: binary
   defp encode_nullable_string(text) do
+    if text == nil do
+      << -1 :: 16-signed >>
+    else
       encode_string(text)
+    end
   end
 
   @spec encode_string(String.t) :: binary
   defp encode_string(text) do
-    IO.inspect(["encode_string", text, byte_size(text)])
     << byte_size(text) :: 16-signed, text :: binary, >>
   end
 
