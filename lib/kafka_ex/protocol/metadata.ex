@@ -76,10 +76,11 @@ defmodule KafkaEx.Protocol.Metadata do
   defmodule TopicMetadata do
     @moduledoc false
     alias KafkaEx.Protocol.Metadata.PartitionMetadata
-    defstruct error_code: 0, topic: nil, partition_metadatas: []
+    defstruct error_code: 0, topic: nil, is_internal: nil, partition_metadatas: []
     @type t :: %TopicMetadata{
       error_code: integer | :no_error,
       topic: nil | binary,
+      is_internal: nil | boolean,
       partition_metadatas: [PartitionMetadata.t]
     }
   end
@@ -131,7 +132,7 @@ defmodule KafkaEx.Protocol.Metadata do
         << controller_id :: 32-signed, rest :: binary >> = rest
         << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
         IO.inspect("topics metadata size #{topic_metadatas_size}")
-        %Response{brokers: brokers, controller_id: controller_id, topic_metadatas: parse_topic_metadatas(topic_metadatas_size, rest)}
+        %Response{brokers: brokers, controller_id: controller_id, topic_metadatas: parse_topic_metadatas_v1(topic_metadatas_size, rest)}
       0 ->
         {brokers, rest} = parse_brokers(brokers_size, rest, [])
         << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
@@ -179,6 +180,24 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_topic_metadatas(topic_metadatas_size, << error_code :: 16-signed, topic_len :: 16-signed, topic :: size(topic_len)-binary, partition_metadatas_size :: 32-signed, rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
     [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size - 1, rest)]
+  end
+
+  defp parse_topic_metadatas_v1(0, _), do: []
+
+  defp parse_topic_metadatas_v1(
+      topic_metadatas_size,
+      <<  error_code :: 16-signed,
+          topic_len :: 16-signed,
+          topic :: size(topic_len)-binary,
+          # booleans are actually 8-signed
+          is_internal :: 8-signed,
+          partition_metadatas_size :: 32-signed,
+          rest :: binary >>) do
+    {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
+    IO.inspect("******** parse_topic_metadatas_v1 ***************")
+    IO.inspect({topic_len, topic, is_internal, partition_metadatas_size})
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas, is_internal: is_internal == 1 } |
+      parse_topic_metadatas_v1(topic_metadatas_size - 1, rest)]
   end
 
   defp parse_partition_metadatas(0, partition_metadatas, rest), do: {partition_metadatas, rest}
