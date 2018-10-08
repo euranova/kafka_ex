@@ -31,6 +31,7 @@ env:
   - COVERALLS=false
 before_script:
   - IP_IFACE=eth0 ./scripts/docker_up.sh
+  - sleep 60
 script:
   - MIX_ENV=test mix deps.compile
   - ./scripts/ci_tests.sh
