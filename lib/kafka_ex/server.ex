@@ -839,8 +839,23 @@ defmodule KafkaEx.Server do
                 config_sync_timeout()
               )
               |> case do
-                {:error, reason} -> {:error, reason}
-                response -> module.parse_response(response)
+                {:error, reason} ->
+                  {:error, reason}
+
+                response ->
+                  try do
+                    module.parse_response(response)
+                  catch
+                    {:parse_error, module, function} ->
+                      Kernel.reraise(
+                        "Parse error during #{inspect(module)}.parse_response, in #{
+                          inspect(module)
+                        }.#{inspect(function)}. Couldn't parse: #{
+                          inspect(response)
+                        }",
+                        __STACKTRACE__
+                      )
+                  end
               end
 
             state_out = State.increment_correlation_id(updated_state)

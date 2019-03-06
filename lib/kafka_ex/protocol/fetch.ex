@@ -83,6 +83,8 @@ defmodule KafkaEx.Protocol.Fetch do
     parse_topics(topics_size, rest, __MODULE__)
   end
 
+  def parse_partitions(partitions_count, rest, partitions)
+
   def parse_partitions(0, rest, partitions), do: {partitions, rest}
 
   def parse_partitions(
@@ -104,6 +106,10 @@ defmodule KafkaEx.Protocol.Fetch do
       }
       | partitions
     ])
+  end
+
+  def parse_partitions(_partitions_count, _rest, _partitions) do
+    throw {:parse_error, __MODULE__, __ENV__.function}
   end
 
   defp parse_message_set([], <<>>) do
