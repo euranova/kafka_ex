@@ -109,7 +109,7 @@ defmodule KafkaEx.Protocol.Fetch do
   end
 
   def parse_partitions(_partitions_count, _rest, _partitions) do
-    throw {:parse_error, __MODULE__, __ENV__.function}
+    throw({:parse_error, __MODULE__, __ENV__.function})
   end
 
   defp parse_message_set([], <<>>) do
