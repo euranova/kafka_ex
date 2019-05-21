@@ -224,6 +224,8 @@ defmodule KafkaEx.Server0P10AndLater do
           {response, %{state | correlation_id: state.correlation_id + 1}}
       end
 
+    state = update_metadata(state)
+
     {:reply, response, state}
   end
 
@@ -272,6 +274,8 @@ defmodule KafkaEx.Server0P10AndLater do
 
           {response, %{state | correlation_id: state.correlation_id + 1}}
       end
+
+    state = update_metadata(state)
 
     {:reply, response, state}
   end
