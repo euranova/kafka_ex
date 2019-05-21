@@ -96,7 +96,7 @@ defmodule KafkaEx.Server0P10AndLater do
      %KafkaEx.Protocol.ApiVersions.Response{
        api_versions: api_versions,
        error_code: :no_error
-     }, state} = kafka_api_versions(%State{brokers: brokers})
+     }, state} = kafka_server_api_versions(%State{brokers: brokers})
 
     api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
 
@@ -170,7 +170,7 @@ defmodule KafkaEx.Server0P10AndLater do
     {:noreply, update_metadata(state)}
   end
 
-  def kafka_api_versions(state) do
+  def kafka_server_api_versions(state) do
     response =
       state.correlation_id
       |> ApiVersions.create_request(@client_id)
@@ -180,7 +180,7 @@ defmodule KafkaEx.Server0P10AndLater do
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_delete_topics(topics, network_timeout, state) do
+  def kafka_server_delete_topics(topics, network_timeout, state) do
     api_version =
       case DeleteTopics.api_version(state.api_versions) do
         {:ok, api_version} ->
@@ -227,7 +227,7 @@ defmodule KafkaEx.Server0P10AndLater do
     {:reply, response, state}
   end
 
-  def kafka_create_topics(requests, network_timeout, state) do
+  def kafka_server_create_topics(requests, network_timeout, state) do
     api_version =
       case CreateTopics.api_version(state.api_versions) do
         {:ok, api_version} ->
