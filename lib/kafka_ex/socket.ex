@@ -43,7 +43,10 @@ defmodule KafkaEx.Socket do
   """
   @spec send(KafkaEx.Socket.t(), iodata) :: :ok | {:error, any}
   def send(%KafkaEx.Socket{ssl: true} = socket, data) do
-    :ssl.send(socket.socket, data)
+    task = Task.async(fn ->
+      :ssl.send(socket.socket, data)
+    end)
+    task |> Task.await(:infinity)
   end
 
   def send(socket, data) do
