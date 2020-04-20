@@ -44,6 +44,7 @@ defmodule KafkaEx.Socket do
   @spec send(KafkaEx.Socket.t(), iodata) :: :ok | {:error, any}
   def send(%KafkaEx.Socket{ssl: true} = socket, data) do
     task = Task.async(fn ->
+      IO.puts("send async ssl")
       :ssl.send(socket.socket, data)
     end)
     task |> Task.await(:infinity)
@@ -85,7 +86,11 @@ defmodule KafkaEx.Socket do
   @spec recv(KafkaEx.Socket.t(), non_neg_integer, timeout) ::
           {:ok, String.t() | binary | term} | {:error, any}
   def recv(%KafkaEx.Socket{ssl: true} = socket, length, timeout) do
-    :ssl.recv(socket.socket, length, timeout)
+    task = Task.async(fn ->
+      IO.puts("recv async ssl")
+      :ssl.recv(socket.socket, length, timeout)
+    end)
+    task |> Task.await(:infinity)
   end
 
   def recv(socket, length, timeout) do
