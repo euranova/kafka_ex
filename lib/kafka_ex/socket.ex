@@ -43,9 +43,10 @@ defmodule KafkaEx.Socket do
   """
   @spec send(KafkaEx.Socket.t(), iodata) :: :ok | {:error, any}
   def send(%KafkaEx.Socket{ssl: true} = socket, data) do
-    Logger.info("send async ssl caller. PID: #{inspect self()}")
+    ref = make_ref()
+    Logger.info("Will call ssl.send async. PID: #{inspect self()} REF: #{ref}")
     spawn(fn ->
-      Logger.info("send async ssl. PID: #{inspect self()}")
+      Logger.info("Calling ssl.send async. PID: #{inspect self()} REF: #{ref}")
       case :ssl.send(socket.socket, data) do
         :ok -> :ok
         {:error, message} -> raise "Error sending message on socket: #{inspect message}"
