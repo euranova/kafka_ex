@@ -2,7 +2,7 @@ defmodule KafkaEx.Socket do
   @moduledoc """
   This module handle all socket related operations.
   """
-
+  require Logger
   defstruct socket: nil, ssl: false
 
   @type t :: %KafkaEx.Socket{
@@ -43,9 +43,9 @@ defmodule KafkaEx.Socket do
   """
   @spec send(KafkaEx.Socket.t(), iodata) :: :ok | {:error, any}
   def send(%KafkaEx.Socket{ssl: true} = socket, data) do
-    IO.puts("send async ssl caller. PID: #{inspect self()}")
-    Task.async(fn ->
-      IO.puts("send async ssl. PID: #{inspect self()}")
+    Logger.info("send async ssl caller. PID: #{inspect self()}")
+    spawn(fn ->
+      Logger.info("send async ssl. PID: #{inspect self()}")
       case :ssl.send(socket.socket, data) do
         :ok -> :ok
         {:error, message} -> raise "Error sending message on socket: #{inspect message}"
@@ -80,7 +80,7 @@ defmodule KafkaEx.Socket do
   @spec recv(KafkaEx.Socket.t(), non_neg_integer) ::
           {:ok, String.t() | binary | term} | {:error, any}
   def recv(%KafkaEx.Socket{ssl: true} = socket, length) do
-    IO.puts("recv ssl (no timeout). PID: #{inspect self()}")
+    Logger.info("recv ssl (no timeout). PID: #{inspect self()}")
     :ssl.recv(socket.socket, length)
   end
 
@@ -91,7 +91,7 @@ defmodule KafkaEx.Socket do
   @spec recv(KafkaEx.Socket.t(), non_neg_integer, timeout) ::
           {:ok, String.t() | binary | term} | {:error, any}
   def recv(%KafkaEx.Socket{ssl: true} = socket, length, timeout) do
-    IO.puts("recv ssl (with timeout). PID: #{inspect self()}")
+    Logger.info("recv ssl (with timeout). PID: #{inspect self()}")
     :ssl.recv(socket.socket, length, timeout)
   end
 
